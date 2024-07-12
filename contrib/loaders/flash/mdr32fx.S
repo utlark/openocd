@@ -56,19 +56,19 @@ wait_fifo:
 	orrs	r7, r7, r6
 	str	r7, [r0, #FLASH_CMD]
 	# wait 5us
-	movs	r6, #5
+	movs	r6, #10
 	bl	delay
 	ldr	r6, =#FLASH_NVSTR
 	orrs	r7, r7, r6
 	str	r7, [r0, #FLASH_CMD]
 	# wait 10us
-	movs	r6, #13
+	movs	r6, #32
 	bl	delay
 	movs	r6, #FLASH_YE
 	orrs	r7, r7, r6
 	str	r7, [r0, #FLASH_CMD]
 	# wait 40us
-	movs	r6, #61
+	movs	r6, #132
 	bl	delay
 	movs	r6, #FLASH_YE
 	bics	r7, r7, r6
@@ -77,7 +77,7 @@ wait_fifo:
 	bics	r7, r7, r6
 	str	r7, [r0, #FLASH_CMD]
 	# wait 5us
-	movs	r6, #5
+	movs	r6, #10
 	bl	delay
 	ldr	r6, =#(FLASH_XE | FLASH_NVSTR)
 	bics	r7, r7, r6
