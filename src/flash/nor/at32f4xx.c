@@ -331,9 +331,22 @@ static int at32_get_device_info(struct flash_bank *bank)
         }
         else
         {
-            retval = target_write_u32(bank->target, 0x40010030, 0x00000009);
-            if (retval != ERROR_OK)
-                return retval;
+            if (at32x_info->spim_info.io_mux == true)
+            {
+                // enable SPIM
+                // config IOMUX: SCK/PB1 CS/PA8 IO0/PB10 IO1/PB11 IO2/PB7 IO3/PB6
+                retval = target_write_u32(bank->target, AT32_IOMUX_REMAP7_ADDR, IOMUX_EXT_SPIM_GMUX_PB | IOMUX_EXT_SPIM_GEN);
+                if (retval != ERROR_OK)
+                    return retval;
+            }
+            else
+            {
+                // enable SPIM
+                // config IOMUX: SCK/PB1 CS/PA8 IO0/PA11 IO1/PA12 IO2/PB7 IO3/PB6
+                retval = target_write_u32(bank->target, AT32_IOMUX_REMAP7_ADDR, IOMUX_EXT_SPIM_GMUX_PA | IOMUX_EXT_SPIM_GEN);
+                if (retval != ERROR_OK)
+                    return retval;
+            }
         }
 
         // select flash type
