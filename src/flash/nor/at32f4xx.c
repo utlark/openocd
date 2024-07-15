@@ -45,6 +45,7 @@
 #define FLASH_SECTOR_ERASE_TIMEOUT 1000
 #define FLASH_MASS_ERASE_TIMEOUT 120000
 
+// flash base address
 #define BANK1_BASE_ADDR 0x08000000
 #define BANK2_BASE_ADDR 0x08080000
 #define BANK2_BASE_ADDR_4M 0x08200000
@@ -56,6 +57,8 @@
 #define SECTOR_SIZE_2K 0x800
 #define SECTOR_SIZE_4K 0x1000
 
+// flash register address
+#define AT32_FLASH_SELECT_ADDR 0x40022088
 #define AT32_FLASH_PSR_OFFSET 0x00
 #define AT32_FLASH_UNLOCK_OFFSET 0x04
 #define AT32_FLASH_USD_UNLOCK_OFFSET 0x08
@@ -88,6 +91,27 @@
 #define FLASH_WDT_ATO_EN 2
 #define FLASH_DEPSLP_RST 3
 #define FLASH_STDBY_RST 4
+
+// crm register address
+#define AT32_CRM_APB2EN_ADDR 0x40021018
+#define AT32_GPIO_A_CFGHR_ADDR 0x40010804
+#define AT32_GPIO_B_CFGLR_ADDR 0x40010c00
+#define AT32_GPIO_B_CFGHR_ADDR 0x40010c04
+
+// crm bits
+#define CRM_IOMUXEN (1 << 0)
+#define CRM_GPIOAEN (1 << 2)
+#define CRM_GPIOBEN (1 << 3)
+
+// iomux register address
+#define AT32_IOMUX_REMAP2_ADDR 0x4001001c
+#define AT32_IOMUX_REMAP7_ADDR 0x40010030
+
+// iomux bits
+#define IOMUX_EXT_SPIM_GMUX_PA 0x0
+#define IOMUX_EXT_SPIM_GMUX_PB 0x1
+#define IOMUX_SPIM_EN (1 << 21)
+#define IOMUX_EXT_SPIM_GEN (1 << 3)
 
 // at32 user system data
 struct at32x_usd_data
@@ -232,68 +256,76 @@ static int at32_get_device_info(struct flash_bank *bank)
         at32x_info->bank_size = at32x_info->spim_info.flash_size;
         at32x_info->sector_num = at32x_info->bank_size / at32x_info->sector_size;
 
-        // enable gpio clock
-        retval = target_write_u32(bank->target, 0x40021018, 0xD);
+        // enable GPIO clock
+        retval = target_write_u32(bank->target, AT32_CRM_APB2EN_ADDR, CRM_IOMUXEN | CRM_GPIOAEN | CRM_GPIOBEN);
         if (retval != ERROR_OK)
             return retval;
 
-        // read gpioa pa8 config
-        retval = target_read_u32(bank->target, 0x40010804, &read_val);
+        // config GPIO PA8
+        retval = target_read_u32(bank->target, AT32_GPIO_A_CFGHR_ADDR, &read_val);
         if (retval != ERROR_OK)
             return retval;
 
+        // 01: Output mode, large sourcing/sinking strength
+        // 10: Alternate function push-pull output
         read_val &= ~(0xf);
         read_val |= 0x9;
 
-        retval = target_write_u32(bank->target, 0x40010804, read_val);
+        retval = target_write_u32(bank->target, AT32_GPIO_A_CFGHR_ADDR, read_val);
         if (retval != ERROR_OK)
             return retval;
 
-        // read gpiob pb1, pb6, pb7  config
-        retval = target_read_u32(bank->target, 0x40010c00, &read_val);
+        // config GPIO PB1, PB6, PB7
+        retval = target_read_u32(bank->target, AT32_GPIO_B_CFGLR_ADDR, &read_val);
         if (retval != ERROR_OK)
             return retval;
 
+        // 01: Output mode, large sourcing/sinking strength
+        // 10: Alternate function push-pull output
         read_val &= ~(0xff0000f0);
         read_val |= 0x99000090;
 
-        retval = target_write_u32(bank->target, 0x40010c00, read_val);
+        retval = target_write_u32(bank->target, AT32_GPIO_B_CFGLR_ADDR, read_val);
         if (retval != ERROR_OK)
             return retval;
 
         if (at32x_info->spim_info.io_mux == true)
         {
-            // read gpiob pb10, pb11  config
-            retval = target_read_u32(bank->target, 0x40010c04, &read_val);
+            // config GPIO PB10, PB11
+            retval = target_read_u32(bank->target, AT32_GPIO_B_CFGHR_ADDR, &read_val);
             if (retval != ERROR_OK)
                 return retval;
 
+            // 01: Output mode, large sourcing/sinking strength
+            // 10: Alternate function push-pull output
             read_val &= ~(0x0000ff00);
             read_val |= 0x00009900;
 
-            retval = target_write_u32(bank->target, 0x40010c04, read_val);
+            retval = target_write_u32(bank->target, AT32_GPIO_B_CFGHR_ADDR, read_val);
             if (retval != ERROR_OK)
                 return retval;
         }
         else
         {
-            // read gpiob pa11, pa12  config
-            retval = target_read_u32(bank->target, 0x40010804, &read_val);
+            // config GPIO PA11, PA12
+            retval = target_read_u32(bank->target, AT32_GPIO_A_CFGHR_ADDR, &read_val);
             if (retval != ERROR_OK)
                 return retval;
 
+            // 01: Output mode, large sourcing/sinking strength
+            // 10: Alternate function push-pull output
             read_val &= ~(0x000ff000);
             read_val |= 0x00099000;
 
-            retval = target_write_u32(bank->target, 0x40010804, read_val);
+            retval = target_write_u32(bank->target, AT32_GPIO_A_CFGHR_ADDR, read_val);
             if (retval != ERROR_OK)
                 return retval;
         }
-        // enable spif
 
         if (at32x_info->project_id == AT32F403XX_ID)
         {
-            retval = target_write_u32(bank->target, 0x4001001c, 1 << 21);
+            // enable SPIM
+            retval = target_write_u32(bank->target, AT32_IOMUX_REMAP2_ADDR, IOMUX_SPIM_EN);
             if (retval != ERROR_OK)
                 return retval;
         }
@@ -304,13 +336,13 @@ static int at32_get_device_info(struct flash_bank *bank)
                 return retval;
         }
 
-        // flash type select
-        retval = target_write_u32(bank->target, 0x40022088, at32x_info->spim_info.flash_type);
+        // select flash type
+        retval = target_write_u32(bank->target, AT32_FLASH_SELECT_ADDR, at32x_info->spim_info.flash_type);
         if (retval != ERROR_OK)
             return retval;
 
         at32x_info->probed = 1;
-        LOG_INFO("spim flash size: 0x%" PRIx32 ", sector num:  0x%x, sector size: 0x%x",
+        LOG_INFO("spim flash size: 0x%" PRIx32 ", sector num: 0x%x, sector size: 0x%x",
                  (at32x_info->flash_size), at32x_info->sector_num, at32x_info->sector_size);
     }
     else
@@ -402,7 +434,7 @@ static int at32_get_device_info(struct flash_bank *bank)
         }
 
         at32x_info->probed = 1;
-        LOG_INFO("main flash size: 0x%" PRIx32 ", sector num:  0x%" PRIx32 ", sector size: 0x%" PRIx32 ",  bank size: 0x%" PRIx32 "",
+        LOG_INFO("main flash size: 0x%" PRIx32 ", sector num: 0x%" PRIx32 ", sector size: 0x%" PRIx32 ", bank size: 0x%" PRIx32 "",
                  (at32x_info->flash_size << 10), at32x_info->sector_num, at32x_info->sector_size, at32x_info->bank_size);
     }
 
@@ -457,7 +489,7 @@ FLASH_BANK_COMMAND_HANDLER(at32x_flash_bank_command)
         {
             at32x_info->usd_addr = 0;
         }
-        LOG_INFO("flash reg address: 0x%" PRIx32 ", usd addr:  0x%x", (at32x_info->cur_reg_base), at32x_info->usd_addr);
+        LOG_INFO("flash reg address: 0x%" PRIx32 ", usd addr: 0x%x", (at32x_info->cur_reg_base), at32x_info->usd_addr);
     }
 
     bank->driver_priv = at32x_info;
