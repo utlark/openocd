@@ -543,7 +543,7 @@ static int at32x_wait_status_busy(struct flash_bank *bank, int timeout)
         if (retval != ERROR_OK)
             return retval;
 
-        LOG_DEBUG(">status: 0x%" PRIx32 "", status);
+        LOG_DEBUG(">status: 0x%" PRIx32 "", status & 0x35);
         if ((status & FLASH_OBF) == 0)
             break;
 
@@ -565,6 +565,10 @@ static int at32x_wait_status_busy(struct flash_bank *bank, int timeout)
     // clear errors
     if (status & (FLASH_EPPERR | FLASH_PRGMERR))
         target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_STS_OFFSET), FLASH_EPPERR | FLASH_PRGMERR);
+
+    // clear done flag
+    if (status & FLASH_ODF)
+        target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_STS_OFFSET), FLASH_ODF);
 
     return retval;
 }
@@ -634,12 +638,15 @@ static int at32x_erase_usd_data(struct flash_bank *bank)
     if (retval != ERROR_OK)
         return retval;
 
+    retval = at32x_wait_status_busy(bank, FLASH_SECTOR_ERASE_TIMEOUT);
+    if (retval != ERROR_OK)
+        return retval;
+
     // erase user system data
     retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_CTRL_OFFSET), FLASH_USDERS | FLASH_USDULKS);
     if (retval != ERROR_OK)
         return retval;
-
-    retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_CTRL_OFFSET), FLASH_USDERS | FLASH_ERSTR | FLASH_USDULKS);
+    retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_CTRL_OFFSET), FLASH_USDERS | FLASH_USDULKS | FLASH_ERSTR);
     if (retval != ERROR_OK)
         return retval;
 
@@ -746,26 +753,27 @@ static int at32x_erase(struct flash_bank *bank, unsigned int first, unsigned int
     if (retval != ERROR_OK)
         return retval;
 
+    uint32_t flash_ctrl_reg = at32x_get_flash_reg(bank, AT32_FLASH_CTRL_OFFSET);
+    uint32_t flash_addr_reg = at32x_get_flash_reg(bank, AT32_FLASH_ADDR_OFFSET);
     for (i = first; i <= last; i++)
     {
-        retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_CTRL_OFFSET), FLASH_SECERS);
+        retval = at32x_wait_status_busy(bank, FLASH_SECTOR_ERASE_TIMEOUT);
         if (retval != ERROR_OK)
             return retval;
-        retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_ADDR_OFFSET), bank->base + bank->sectors[i].offset);
+
+        retval = target_write_u32(target, flash_addr_reg, bank->base + bank->sectors[i].offset);
         if (retval != ERROR_OK)
             return retval;
-        retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_CTRL_OFFSET), FLASH_SECERS | FLASH_ERSTR);
+        retval = target_write_u32(target, flash_ctrl_reg, FLASH_SECERS | FLASH_ERSTR);
         if (retval != ERROR_OK)
             return retval;
 
         retval = at32x_wait_status_busy(bank, FLASH_SECTOR_ERASE_TIMEOUT);
         if (retval != ERROR_OK)
             return retval;
-
-        bank->sectors[i].is_erased = 1;
     }
 
-    retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_CTRL_OFFSET), FLASH_OPLK);
+    retval = target_write_u32(target, flash_ctrl_reg, FLASH_OPLK);
     if (retval != ERROR_OK)
         return retval;
 
@@ -1070,6 +1078,10 @@ static int at32x_mass_erase(struct flash_bank *bank)
     if (retval != ERROR_OK)
         return retval;
     retval = target_write_u32(target, at32x_get_flash_reg(bank, AT32_FLASH_UNLOCK_OFFSET), KEY2);
+    if (retval != ERROR_OK)
+        return retval;
+
+    retval = at32x_wait_status_busy(bank, FLASH_MASS_ERASE_TIMEOUT);
     if (retval != ERROR_OK)
         return retval;
 
