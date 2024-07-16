@@ -39,10 +39,10 @@
 
 #ifdef PKGBLDDATE
 #define OPENOCD_VERSION	\
-	"Open On-Chip Debugger " VERSION RELSTR " (" PKGBLDDATE ")"
+	"Open On-Chip Debugger " VERSION "-Saut-1.0.0" " (" PKGBLDDATE ")"
 #else
 #define OPENOCD_VERSION	\
-	"Open On-Chip Debugger " VERSION RELSTR
+	"Open On-Chip Debugger " VERSION "-Saut-1.0.0"
 #endif
 
 static const char openocd_startup_tcl[] = {
