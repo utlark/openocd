@@ -64,7 +64,7 @@ jobs:
           echo "ARTIFACT_PATH=$PREFIX/openocd" >> $GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: openocd-linux
           path: ${{ env.ARTIFACT_PATH }}/*
@@ -138,7 +138,7 @@ jobs:
           echo "ARTIFACT_PATH=$PWD" >> $GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: openocd-windows-x86
           path: ${{ env.ARTIFACT_PATH }}/*
