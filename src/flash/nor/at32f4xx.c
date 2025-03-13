@@ -116,8 +116,8 @@
 // at32 user system data
 struct at32x_usd_data
 {
-    uint8_t fap;
-    uint8_t ssb;
+    uint16_t fap;
+    uint16_t ssb;
     uint16_t data;
     uint32_t protection;
 };
@@ -688,7 +688,7 @@ static int at32x_write_usd_data(struct flash_bank *bank)
     uint8_t usd_data[16];
 
     target_buffer_set_u16(target, usd_data, at32x_info->usd_data.fap);
-    target_buffer_set_u16(target, usd_data + 2, at32x_info->usd_data.ssb);
+    target_buffer_set_u16(target, usd_data + 2, at32x_info->usd_data.ssb & 0xff);
     target_buffer_set_u16(target, usd_data + 4, at32x_info->usd_data.data & 0xff);
     target_buffer_set_u16(target, usd_data + 6, (at32x_info->usd_data.data >> 8) & 0xff);
     target_buffer_set_u16(target, usd_data + 8, at32x_info->usd_data.protection & 0xff);
@@ -1153,7 +1153,7 @@ COMMAND_HANDLER(at32x_handle_disable_access_protection_command)
         LOG_INFO("at32x failed to erase usd");
         return ERROR_OK;
     }
-    at32x_info->usd_data.fap = 0xA5;
+    at32x_info->usd_data.fap = 0x5AA5;
     if (at32x_write_usd_data(bank) != ERROR_OK)
     {
         LOG_INFO("at32x failed to write usd");
@@ -1161,6 +1161,123 @@ COMMAND_HANDLER(at32x_handle_disable_access_protection_command)
     }
 
     LOG_INFO("AT32x disable access protection complete");
+
+    return ERROR_OK;
+}
+
+static int iar_at32x_disable_access_protection(struct flash_bank *bank)
+{
+    uint32_t read_data;
+    struct target *target = bank->target;
+
+    int retval = target_write_u32(target, 0x40022004, 0x45670123); // FLASH->UNLOCK = FLASH_KEY1;
+    if (retval != ERROR_OK)
+        return retval;
+
+    retval = target_write_u32(target, 0x40022004, 0xCDEF89AB); // FLASH->UNLOCK = FLASH_KEY2;
+    if (retval != ERROR_OK)
+        return retval;
+
+    retval = target_write_u32(target, 0x40022008, 0x45670123); // FLASH->USD_UNLOCK = FLASH_KEY1;
+    if (retval != ERROR_OK)
+        return retval;
+
+    retval = target_write_u32(target, 0x40022008, 0xCDEF89AB); // FLASH->USD_UNLOCK = FLASH_KEY2
+    if (retval != ERROR_OK)
+        return retval;
+
+    retval = target_write_u32(target, 0x40022010, 0x00000220); // USD erase
+    if (retval != ERROR_OK)
+        return retval;
+
+    retval = target_write_u32(target, 0x40022010, 0x00000260); // Start operation
+    if (retval != ERROR_OK)
+        return retval;
+
+    for (;;) // Wait while FLASH busy
+    {
+        retval = target_read_u32(target, 0x4002200C, &read_data);
+        if (retval != ERROR_OK)
+            return retval;
+
+        if ((0x1 & read_data) == 0)
+            break;
+
+        alive_sleep(1);
+    }
+
+    retval = target_write_u32(target, 0x40022010, 0x00000210); // USD programming
+    if (retval != ERROR_OK)
+        return retval;
+
+    retval = target_write_u16(target, 0x1FFFF800, 0x5AA5);
+    if (retval != ERROR_OK)
+        return retval;
+
+    alive_sleep(4000);
+    for (;;) // Wait while FLASH busy
+    {
+        retval = target_read_u32(target, 0x4002200C, &read_data);
+        if (retval != ERROR_OK)
+            return retval;
+
+        if ((0x1 & read_data) == 0)
+            break;
+
+        alive_sleep(1);
+    }
+
+    return ERROR_OK;
+}
+
+COMMAND_HANDLER(iar_at32x_handle_disable_access_protection_command)
+{
+    uint32_t read_data;
+    struct flash_bank *bank;
+    struct target *target = NULL;
+
+    if (CMD_ARGC < 1)
+        return ERROR_COMMAND_SYNTAX_ERROR;
+
+    int retval = CALL_COMMAND_HANDLER(flash_command_get_bank, 0, &bank);
+    if (retval != ERROR_OK)
+        return retval;
+
+    target = bank->target;
+    if (target->state != TARGET_HALTED)
+    {
+        LOG_ERROR("IAR: Target not halted");
+        return ERROR_TARGET_NOT_HALTED;
+    }
+
+    if (CMD_ARGV[0] == 0)
+    {
+        LOG_INFO("IAR: CMD_ARGV[0] == 0");
+        retval = target_read_u32(target, 0x4002201C, &read_data);
+        if (retval != ERROR_OK)
+            return retval;
+
+        if (0x2 & read_data)
+        {
+            LOG_INFO("IAR: FAP is enabled");
+            iar_at32x_disable_access_protection(bank);
+        }
+    }
+    else if (CMD_ARGV[0] == 1)
+    {
+        LOG_INFO("IAR: CMD_ARGV[0] == 1");
+        retval = target_read_u32(target, 0x40022020, &read_data);
+        if (retval != ERROR_OK)
+            return retval;
+
+        if (read_data != 0xFFFFFFFF)
+        {
+            LOG_INFO("IAR: Locked");
+            iar_at32x_disable_access_protection(bank);
+        }
+    }
+
+    LOG_INFO("IAR: AT32x disable access protection complete");
 
     return ERROR_OK;
 }
@@ -1176,6 +1293,13 @@ static const struct command_registration at32f4xx_exec_command_handlers[] = {
     {
         .name = "disable_access_protection",
         .handler = at32x_handle_disable_access_protection_command,
+        .mode = COMMAND_EXEC,
+        .usage = "bank_id",
+        .help = "if access protection enabled, can not write data to flash",
+    },
+    {
+        .name = "iar_disable_access_protection",
+        .handler = iar_at32x_handle_disable_access_protection_command,
         .mode = COMMAND_EXEC,
         .usage = "bank_id",
         .help = "if access protection enabled, can not write data to flash",
